@@ -1,168 +1,90 @@
 import cv2
-import mediapipe as mp
 import numpy as np
-import time
+import mediapipe as mp
 
-
-# MediaPipe
-
+# Inicializar MediaPipe Hands
 mp_hands = mp.solutions.hands
-mp_draw = mp.solutions.drawing_utils
-hands = mp_hands.Hands(
-    min_detection_confidence=0.7,
-    min_tracking_confidence=0.7
-)
-#Cámara
+mp_drawing = mp.solutions.drawing_utils
+hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7)
+
+# Variables globales
+color = (0,255,0) # Color inicial (verde)
+opcion = 0 # 0: nada, 1: pintar
+
+# Inicializar la captura de video desde la cámara web
 cap = cv2.VideoCapture(0)
+cv2.waitKey(2000) # Esperar 2 segundos para que la cámara se estabilice
 
-
-# Estado calculadora
-
-num_a = ""
-num_b = ""
-operator = ""
-result = ""
-state = "A"  # Estado actual: A o B
-last_press_time = 0
-PRESS_DELAY = 0.6  # segundos para que no rebote
-
-
-# Botones
-
-buttons = []
-
-# Números
-x0, y0 = 50, 50
-w, h = 80, 80
-
-for i in range(10):
-    buttons.append({
-        "label": str(i),
-        "x": x0 + i * (w + 5),
-        "y": y0,
-        "w": w,
-        "h": h,
-        "type": "num"
-    })
-
-# Operadores
-ops = ["+", "-", "*", "/", "^"]
-for i, op in enumerate(ops):
-    buttons.append({
-        "label": op,
-        "x": 50,
-        "y": 160 + i * (h + 10),
-        "w": w,
-        "h": h,
-        "type": "op"
-    })
-
-# Igual
-buttons.append({
-    "label": "=",
-    "x": 50,
-    "y": 160 + len(ops) * (h + 10),
-    "w": w,
-    "h": h,
-    "type": "eq"
-})
-
-
-# Funciones
-
-def draw_button(img, b):
-    cv2.rectangle(
-        img,
-        (b["x"], b["y"]),
-        (b["x"] + b["w"], b["y"] + b["h"]),
-        (200, 200, 200),
-        2
-    )
-    cv2.putText(
-        img,
-        b["label"],
-        (b["x"] + 25, b["y"] + 55),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1.5,
-        (255, 255, 255),
-        2
-    )
-
-def inside(x, y, b):
-    return b["x"] < x < b["x"] + b["w"] and b["y"] < y < b["y"] + b["h"]
-
+pizarra = None   # lienzo donde pintaremos
+mano=False
+mano_actual=None
+mx2,my2=0,0
 
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         break
+    frame2 = frame.copy()
+    if pizarra is None:
+        pizarra = np.zeros_like(frame)  # inicializar lienzo negro
 
-    frame = cv2.flip(frame, 1)
-    frame = cv2.resize(frame, (1200, 800), interpolation=cv2.INTER_LINEAR)
-    h_img, w_img, _ = frame.shape
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    res = hands.process(rgb)
+    # Opciones en pantalla para seleccionar color
+    cv2.rectangle(frame2, (30, 30), (100, 100), (0, 255, 0), -1) # verde
+    cv2.rectangle(frame2, (110,30), (180,100),(0,0,255) , -1) # rojo
+    cv2.rectangle(frame2, (190,30), (260,100), (255,0,140), -1)   # morado
+    cv2.rectangle(frame2, (270,30), (340,100), (0,136,255), -1) # naranja
+    cv2.rectangle(frame2, (350,30), (420,100), (0,255,255) , -1) # amarillo
+    cv2.rectangle(frame2, (430,30), (500,100),(255,0,0), -1) # azul
+    
+    # Botón de borrar
+    cv2.rectangle(frame2, (30,140), (100,200), (250,250,250), -1)   
 
-    # Dibujar botones
-    for b in buttons:
-        draw_button(frame, b)
+    # Detectar objeto azul
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    lower_blue = np.array([100, 80, 40])
+    upper_blue = np.array([140, 255, 255])
+    mask = cv2.inRange(hsv, lower_blue, upper_blue)
 
-    # Mostrar estado
-    display = f"{num_a} {operator} {num_b}"
-    cv2.putText(frame, display, (50, h_img - 50),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 255, 255), 2)
+    h, w, _ = frame.shape
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = hands.process(frame_rgb)
 
-    if res.multi_hand_landmarks:
-        for hand in res.multi_hand_landmarks:
-            mp_draw.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
+    # Detectar mano para cambiar color o borrar
+    if results.multi_hand_landmarks and results.multi_handedness:
+        for hand_landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
+            mp_drawing.draw_landmarks(frame2, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+            indice = hand_landmarks.landmark[8]
+            mx2, my2 = int(indice.x * w), int(indice.y * h)
 
-            index_tip = hand.landmark[8]
-            x = int(index_tip.x * w_img)
-            y = int(index_tip.y * h_img)
+            # Paleta de colores
+            if 30<my2<100:
+                if 30<mx2<100: color=(0,255,0)
+                elif 110<mx2<180: color=(0,0,255)
+                elif 190<mx2<260: color=(255,0,140)
+                elif 270<mx2<340: color=(0,136,255)
+                elif 350<mx2<420: color=(0,255,255)
+                elif 430<mx2<500: color=(255,0,0)
 
-            cv2.circle(frame, (x, y), 10, (0, 0, 255), -1)
+            # Borrar lienzo
+            if 140<my2<200 and 30<mx2<100:
+                pizarra[:] = 0 
 
-            now = time.time()
-            if now - last_press_time > PRESS_DELAY:
-                for b in buttons:
-                    if inside(x, y, b):
+    # Pintar con el objeto azul detectado
+    coords = np.column_stack(np.where(mask==255))
+    for y,x in coords:
+        pizarra[y,x] = color
 
-                        if b["type"] == "num":
-                            if state == "A":
-                                num_a += b["label"]
-                            elif state == "B":
-                                num_b += b["label"]
+    # Superponer lienzo
+    combined = cv2.addWeighted(frame2, 0.7, pizarra, 0.3, 0)
 
-                        elif b["type"] == "op" and num_a != "":
-                            operator = b["label"]
-                            state = "B"
+    cv2.imshow("Paint", combined)
+    cv2.imshow("mask", mask)
 
-                        elif b["type"] == "eq" and num_b != "":
-                            try:
-                                expr = num_a + operator + num_b
-                                result = str(eval(expr))
-                                num_a = result
-                                num_b = ""
-                                operator = ""
-                                state = "A"
-                            except:
-                                num_a = ""
-                                num_b = ""
-                                operator = ""
-                                result = "Error"
-
-                        last_press_time = now
-
-    if result != "":
-        cv2.putText(frame, f"Resultado: {result}",
-                    (300, h_img - 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.4,
-                    (255, 100, 0), 2)
-
-    cv2.imshow("Calculadora con dedo", frame) 
-
-    if cv2.waitKey(1) & 0xFF == ord("q"):
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+    if cv2.getWindowProperty("Paint", cv2.WND_PROP_VISIBLE) < 1:
         break
 
+# Liberar recursos
 cap.release()
 cv2.destroyAllWindows()
